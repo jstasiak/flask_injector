@@ -139,18 +139,35 @@ def postconfigure_app(app, injector, request_scope_class=RequestScope):
     :type injector: :class:`injector.Injector`
     '''
 
-    for endpoint, view in app.view_functions.items():
-        if hasattr(view, '__bindings__'):
-            app.view_functions[endpoint] = wrap_fun(view, injector)
-        elif (hasattr(view, 'view_class') and
-                hasattr(view.view_class.__init__, '__bindings__')):
-            current_class = view.view_class
+    def w(fun):
+        if hasattr(fun, '__bindings__'):
+            fun = wrap_fun(fun, injector)
+        elif hasattr(fun, 'view_class'):
+            current_class = fun.view_class
 
             def cls(**kwargs):
                 return injector.create_object(
                     current_class, additional_kwargs=kwargs)
 
-            view.view_class = cls
+            fun.view_class = cls
+
+        return fun
+
+    def process_dict(d):
+        for key, value in d.items():
+            if isinstance(value, list):
+                value[:] = [w(fun) for fun in value]
+            elif hasattr(value, '__call__'):
+                d[key] = w(value)
+
+    for container in (
+            app.view_functions,
+            app.before_request_funcs,
+            app.after_request_funcs,
+            app.teardown_request_funcs,
+            app.template_context_processors,
+    ):
+        process_dict(container)
 
     def tearing_down(sender, exc=None):
         injector.get(request_scope_class).reset()
