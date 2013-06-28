@@ -1,15 +1,22 @@
 from injector import inject, Injector
 from flask import Flask
+from flask.templating import render_template_string
 from flask.views import View
 from nose.tools import eq_
 
 from flask_injector import preconfigure_app, postconfigure_app
 
 
-def test_injection_in_preconfigured_views():
+def test_injections():
+    l = [1, 2, 3]
+    counter = [0]
+
+    def inc():
+        counter[0] += 1
+
     def conf(binder):
         binder.bind(str, to="something")
-        binder.bind(list, to=[1, 2, 3])
+        binder.bind(list, to=l)
 
     injector = Injector(conf)
     app = Flask(__name__)
@@ -19,12 +26,40 @@ def test_injection_in_preconfigured_views():
     @app.route('/view1')
     @inject(content=str)
     def view1(content):
-        return content
+        inc()
+        return render_template_string(content)
 
     @inject(content=list)
     class View2(View):
         def dispatch_request(self):
-            return str(self.content)
+            inc()
+            return render_template_string('%s' % self.content)
+
+    @app.before_request
+    @inject(c=list)
+    def br(c):
+        inc()
+        eq_(c, l)
+
+    @app.after_request
+    @inject(c=list)
+    def ar(response_class, c):
+        inc()
+        eq_(c, l)
+        return response_class
+
+    @app.context_processor
+    @inject(c=list)
+    def cp(c):
+        inc()
+        eq_(c, l)
+        return {}
+
+    @app.teardown_request
+    @inject(c=list)
+    def tr(sender, exc=None, c=None):
+        inc()
+        eq_(c, l)
 
     app.add_url_rule('/view2', view_func=View2.as_view('view2'))
 
@@ -34,8 +69,11 @@ def test_injection_in_preconfigured_views():
         response = c.get('/view1')
         eq_(response.data, "something")
 
+    with app.test_client() as c:
         response = c.get('/view2')
-        eq_(response.data, '[1, 2, 3]')
+        eq_(response.data, '%s' % (l,))
+
+    eq_(counter[0], 10)
 
 
 def test_resets():

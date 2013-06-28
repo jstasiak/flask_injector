@@ -77,13 +77,14 @@ __all__ = ['request', 'RequestScope', 'Config', 'Request', ]
 
 def wrap_fun(fun, injector):
     @functools.wraps(fun)
-    def wrapper(**kwargs):
+    def wrapper(*args, **kwargs):
         injections = injector.args_to_inject(
             function=fun,
             bindings=fun.__bindings__,
             owner_key=fun.__module__,
         )
-        return fun(**dict(injections, **kwargs))
+        print(fun, args, injections, kwargs)
+        return fun(*args, **dict(injections, **kwargs))
 
     return wrapper
 
