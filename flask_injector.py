@@ -8,66 +8,15 @@
 #
 # Author: Alec Thomas <alec@swapoff.org>
 
-"""
-Flask-Injector - A dependency-injection adapter for Flask.
-
-The following example illustrates function and class-based views with
-dependency-injection::
-
-    from flask import Flask
-    from flask.views import View
-
-    def configure_views(app):
-        @app.route("/bar")
-        def bar():
-            return render("bar.html")
-
-
-        # Route with injection
-        @app.route("/foo")
-        @inject(db=sqlite3.Connection)
-        def foo(db):
-            users = db.execute('SELECT * FROM users').all()
-            return render("foo.html")
-
-
-        @inject(db=sqlite3.Connection)
-        class Waz(View):
-            def dispatch_request(self):
-                users = db.execute('SELECT * FROM users').all()
-                return 'waz'
-
-        app.add_url_rule('/waz', view_func=Waz.as_view('waz'))
-
-
-    def configure(binder):
-        config = binder.injector.get(Config)
-        binder.bind(
-            sqlite3.Connection,
-            to=sqlite3.Connection(config['DB_CONNECTION_STRING']),
-            scope=request,
-        )
-
-
-    def main():
-        app = Flask(__name__)
-        app.config.update({'DB_CONNECTION_STRING': ':memory:', })
-        injector = Injector(configure)
-
-        preconfigure_app(app, injector)
-        configure_views(app)
-        postconfigure_app(app, injector)
-
-        app.run()
-"""
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import functools
 
 import flask
-from werkzeug.local import Local, LocalManager
-from injector import Scope, ScopeDecorator, singleton, InstanceProvider
+from injector import Injector
 from flask import Config, Request
+from werkzeug.local import Local, LocalManager
+from injector import Module, Scope, ScopeDecorator, singleton, InstanceProvider
 
 
 __author__ = 'Alec Thomas <alec@swapoff.org>'
@@ -83,7 +32,6 @@ def wrap_fun(fun, injector):
             bindings=fun.__bindings__,
             owner_key=fun.__module__,
         )
-        print(fun, args, injections, kwargs)
         return fun(*args, **dict(injections, **kwargs))
 
     return wrapper
@@ -118,21 +66,31 @@ class RequestScope(Scope):
 request = ScopeDecorator(RequestScope)
 
 
-def preconfigure_app(app, injector, request_scope_class=RequestScope):
+def init_app(app, modules=[], request_scope_class=RequestScope):
     '''
-    Needs to be called right after an application is created (eg. before
-    any views, signal handlers etc. are registered).
+    Initializes Injector for the application.
 
+    .. note:: Needs to be called right after an application is created (eg. before
+        any views, signal handlers etc. are registered).
+
+    :param app: Application to configure
+    :param modules: Configuration for newly created :class:`injector.Injector`
     :type app: :class:`flask.Flask`
-    :type injector: :class:`injector.Injector`
+    :type modules: Iterable of configuration modules
+    :rtype: :class:`injector.Injector`
     '''
+    injector = Injector(
+        [FlaskModule(app=app, request_scope_class=request_scope_class)] +
+        list(modules))
+
+    @app.before_request
     def before_request():
         injector.get(request_scope_class).reset()
 
-    app.before_request(before_request)
+    return injector
 
 
-def postconfigure_app(app, injector, request_scope_class=RequestScope):
+def post_init_app(app, injector, request_scope_class=RequestScope):
     '''
     Needs to be called after all views, signal handlers, etc. are registered.
 
@@ -175,10 +133,14 @@ def postconfigure_app(app, injector, request_scope_class=RequestScope):
 
     app.teardown_request(tearing_down)
 
-    def configure(binder):
-        binder.bind_scope(request_scope_class)
-        binder.bind(flask.Flask, to=app, scope=singleton)
-        binder.bind(Config, to=app.config, scope=singleton)
-        binder.bind(Request, to=lambda: flask.request)
 
-    configure(injector.binder)
+class FlaskModule(Module):
+    def __init__(self, app, request_scope_class=RequestScope):
+        self.app = app
+        self.request_scope_class = request_scope_class
+
+    def configure(self, binder):
+        binder.bind_scope(self.request_scope_class)
+        binder.bind(flask.Flask, to=self.app, scope=singleton)
+        binder.bind(Config, to=self.app.config, scope=singleton)
+        binder.bind(Request, to=lambda: flask.request)

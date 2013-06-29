@@ -4,7 +4,7 @@ from flask.templating import render_template_string
 from flask.views import View
 from nose.tools import eq_
 
-from flask_injector import preconfigure_app, postconfigure_app
+from flask_injector import init_app, post_init_app
 
 
 def test_injections():
@@ -21,7 +21,7 @@ def test_injections():
     injector = Injector(conf)
     app = Flask(__name__)
 
-    preconfigure_app(app, injector)
+    init_app(app, injector)
 
     @app.route('/view1')
     @inject(content=str)
@@ -63,15 +63,15 @@ def test_injections():
 
     app.add_url_rule('/view2', view_func=View2.as_view('view2'))
 
-    postconfigure_app(app, injector)
+    post_init_app(app, injector)
 
     with app.test_client() as c:
         response = c.get('/view1')
-        eq_(response.data, "something")
+        eq_(response.get_data(as_text=True), "something")
 
     with app.test_client() as c:
         response = c.get('/view2')
-        eq_(response.data, '%s' % (l,))
+        eq_(response.get_data(as_text=True), '%s' % (l,))
 
     eq_(counter[0], 10)
 
@@ -89,14 +89,14 @@ def test_resets():
         def reset(self):
             counter[0] += 1
 
-    preconfigure_app(app, injector, request_scope_class=Scope)
+    init_app(app, injector, request_scope_class=Scope)
 
     @app.route('/')
     def index():
         eq_(counter[0], 1)
         return 'asd'
 
-    postconfigure_app(app, injector, request_scope_class=Scope)
+    post_init_app(app, injector, request_scope_class=Scope)
 
     eq_(counter[0], 0)
 
