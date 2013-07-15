@@ -7,6 +7,15 @@ Injector is a dependency-injection framework for Python, inspired by Guice.
 
 This way there's no need to use global Flask objects, which makes testing simpler.
 
+Injection
+---------
+
+You can inject dependencies into:
+
+* view functions
+* class based views (as construction parameters)
+* ``before_request``, ``after_request``, ``teardown_request`` handlers
+* template context processor functions
 
 Example application using flask_injector
 ----------------------------------------
